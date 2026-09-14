@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
-import { NotFoundError, PeriodClosedError } from "../../lib/errors";
+import { NotFoundError, PeriodClosedError, ConflictError } from "../../lib/errors";
 
 type TxClient = Prisma.TransactionClient;
 
@@ -44,6 +44,23 @@ export async function createFiscalPeriod(
   companyId: string,
   input: { name: string; startDate: Date; endDate: Date }
 ) {
+  // Two periods with overlapping date ranges would make assertOpenPeriodForDate's
+  // lookup ambiguous — a date inside the overlap could resolve to either period,
+  // silently picking whichever one Postgres returns first. Overlap is rejected
+  // here so that never becomes possible.
+  const overlapping = await prisma.fiscalPeriod.findFirst({
+    where: {
+      companyId,
+      startDate: { lte: input.endDate },
+      endDate: { gte: input.startDate },
+    },
+  });
+  if (overlapping) {
+    throw new ConflictError(
+      `Date range overlaps existing fiscal period "${overlapping.name}" (${overlapping.startDate.toISOString().slice(0, 10)} to ${overlapping.endDate.toISOString().slice(0, 10)})`
+    );
+  }
+
   return prisma.fiscalPeriod.create({
     data: {
       companyId,
