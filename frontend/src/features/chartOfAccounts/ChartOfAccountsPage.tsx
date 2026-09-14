@@ -11,13 +11,14 @@ import { Modal } from "../../components/Modal";
 import { Field, Input, Select } from "../../components/Field";
 import type { AccountType } from "../../types";
 
-const TYPE_TONE: Record<AccountType, "blue" | "rose" | "amber" | "green" | "slate"> = {
-  ASSET: "blue",
-  LIABILITY: "rose",
-  EQUITY: "amber",
-  REVENUE: "green",
-  EXPENSE: "slate",
+const ACCOUNT_TYPE_META: Record<AccountType, { label: string; tone: "blue" | "rose" | "amber" | "green" | "slate" }> = {
+  ASSET: { label: "Asset", tone: "blue" },
+  LIABILITY: { label: "Liability", tone: "rose" },
+  EQUITY: { label: "Equity", tone: "amber" },
+  REVENUE: { label: "Revenue", tone: "green" },
+  EXPENSE: { label: "Expense", tone: "slate" },
 };
+const ACCOUNT_TYPES = Object.keys(ACCOUNT_TYPE_META) as AccountType[];
 
 export function ChartOfAccountsPage() {
   const { currentCompany } = useCompany();
@@ -58,7 +59,7 @@ export function ChartOfAccountsPage() {
                 <TD className="font-mono text-xs text-slate-500">{a.code}</TD>
                 <TD className="font-medium text-slate-900">{a.name}</TD>
                 <TD>
-                  <Badge tone={TYPE_TONE[a.type]}>{a.type}</Badge>
+                  <Badge tone={ACCOUNT_TYPE_META[a.type].tone}>{ACCOUNT_TYPE_META[a.type].label}</Badge>
                 </TD>
                 <TD align="center">
                   <Badge tone={a.isActive ? "green" : "slate"}>{a.isActive ? "Active" : "Inactive"}</Badge>
@@ -122,11 +123,11 @@ function CreateAccountModal({
           </Field>
           <Field label="Type">
             <Select value={type} onChange={(e) => setType(e.target.value as AccountType)}>
-              <option value="ASSET">Asset</option>
-              <option value="LIABILITY">Liability</option>
-              <option value="EQUITY">Equity</option>
-              <option value="REVENUE">Revenue</option>
-              <option value="EXPENSE">Expense</option>
+              {ACCOUNT_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {ACCOUNT_TYPE_META[t].label}
+                </option>
+              ))}
             </Select>
           </Field>
         </div>
