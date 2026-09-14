@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useApi } from "../../lib/useApi";
+import { useOutstandingBalance } from "../../lib/useOutstandingBalance";
 import { paymentsApi } from "../../api/payments";
 import { suppliersApi } from "../../api/suppliers";
 import { purchaseInvoicesApi } from "../../api/purchaseInvoices";
@@ -7,6 +8,7 @@ import { Button } from "../../components/Button";
 import { ErrorBanner } from "../../components/Feedback";
 import { Modal } from "../../components/Modal";
 import { Field, Input, Select } from "../../components/Field";
+import { OutstandingBalanceBanner, ExceedsBalanceWarning } from "../../components/OutstandingBalanceHint";
 import { formatMoney } from "../../lib/format";
 import { genIdempotencyKey } from "../../api/client";
 
@@ -31,6 +33,13 @@ export function CreatePaymentModal({
 
   const supplierInvoices = (invoices ?? []).filter(
     (inv) => inv.supplierId === supplierId && inv.status === "POSTED"
+  );
+
+  const { outstandingBalance, amountExceedsBalance } = useOutstandingBalance(
+    purchaseInvoicesApi.get,
+    companyId,
+    selectedInvoiceId,
+    amount
   );
 
   async function handleSubmit(e: React.FormEvent) {
@@ -95,6 +104,8 @@ export function CreatePaymentModal({
           </Select>
         </Field>
 
+        {outstandingBalance !== null && <OutstandingBalanceBanner amount={outstandingBalance} />}
+
         <div className="grid grid-cols-2 gap-3">
           <Field label="Payment date">
             <Input type="date" required value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
@@ -103,11 +114,13 @@ export function CreatePaymentModal({
             <Input
               type="number"
               min="0.01"
+              max={outstandingBalance ?? undefined}
               step="0.01"
               required
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
             />
+            {amountExceedsBalance && <ExceedsBalanceWarning limit={outstandingBalance!} />}
           </Field>
         </div>
 
@@ -115,7 +128,7 @@ export function CreatePaymentModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" isLoading={isSubmitting}>
+          <Button type="submit" isLoading={isSubmitting} disabled={amountExceedsBalance}>
             Post payment
           </Button>
         </div>

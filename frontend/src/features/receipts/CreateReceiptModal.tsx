@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useApi } from "../../lib/useApi";
+import { useOutstandingBalance } from "../../lib/useOutstandingBalance";
 import { receiptsApi } from "../../api/receipts";
 import { customersApi } from "../../api/customers";
 import { salesInvoicesApi } from "../../api/salesInvoices";
@@ -7,6 +8,7 @@ import { Button } from "../../components/Button";
 import { ErrorBanner } from "../../components/Feedback";
 import { Modal } from "../../components/Modal";
 import { Field, Input, Select } from "../../components/Field";
+import { OutstandingBalanceBanner, ExceedsBalanceWarning } from "../../components/OutstandingBalanceHint";
 import { formatMoney } from "../../lib/format";
 import { genIdempotencyKey } from "../../api/client";
 
@@ -31,6 +33,13 @@ export function CreateReceiptModal({
 
   const customerInvoices = (invoices ?? []).filter(
     (inv) => inv.customerId === customerId && inv.status === "POSTED"
+  );
+
+  const { outstandingBalance, amountExceedsBalance } = useOutstandingBalance(
+    salesInvoicesApi.get,
+    companyId,
+    selectedInvoiceId,
+    amount
   );
 
   async function handleSubmit(e: React.FormEvent) {
@@ -95,6 +104,8 @@ export function CreateReceiptModal({
           </Select>
         </Field>
 
+        {outstandingBalance !== null && <OutstandingBalanceBanner amount={outstandingBalance} />}
+
         <div className="grid grid-cols-2 gap-3">
           <Field label="Receipt date">
             <Input type="date" required value={receiptDate} onChange={(e) => setReceiptDate(e.target.value)} />
@@ -103,11 +114,13 @@ export function CreateReceiptModal({
             <Input
               type="number"
               min="0.01"
+              max={outstandingBalance ?? undefined}
               step="0.01"
               required
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
             />
+            {amountExceedsBalance && <ExceedsBalanceWarning limit={outstandingBalance!} />}
           </Field>
         </div>
 
@@ -115,7 +128,7 @@ export function CreateReceiptModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" isLoading={isSubmitting}>
+          <Button type="submit" isLoading={isSubmitting} disabled={amountExceedsBalance}>
             Post receipt
           </Button>
         </div>
