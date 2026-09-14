@@ -1,0 +1,402 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Tenant root
+// ---------------------------------------------------------------------------
+
+model Company {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  fiscalPeriods     FiscalPeriod[]
+  accounts          Account[]
+  customers         Customer[]
+  suppliers         Supplier[]
+  salesInvoices     SalesInvoice[]
+  purchaseInvoices  PurchaseInvoice[]
+  receipts          Receipt[]
+  payments          Payment[]
+  journalEntries    JournalEntry[]
+  auditLogs         AuditLog[]
+
+  @@map("companies")
+}
+
+// ---------------------------------------------------------------------------
+// Fiscal periods — posting control boundary
+// ---------------------------------------------------------------------------
+
+enum FiscalPeriodStatus {
+  OPEN
+  CLOSED
+}
+
+model FiscalPeriod {
+  id        String             @id @default(uuid())
+  companyId String             @map("company_id")
+  name      String
+  startDate DateTime           @map("start_date") @db.Date
+  endDate   DateTime           @map("end_date") @db.Date
+  status    FiscalPeriodStatus @default(OPEN)
+  closedAt  DateTime?          @map("closed_at")
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salesInvoices    SalesInvoice[]
+  purchaseInvoices PurchaseInvoice[]
+  receipts         Receipt[]
+  payments         Payment[]
+  journalEntries   JournalEntry[]
+
+  @@unique([companyId, startDate, endDate])
+  @@index([companyId, status])
+  @@map("fiscal_periods")
+}
+
+// ---------------------------------------------------------------------------
+// Chart of Accounts
+// ---------------------------------------------------------------------------
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+model Account {
+  id        String      @id @default(uuid())
+  companyId String      @map("company_id")
+  code      String
+  name      String
+  type      AccountType
+  isActive  Boolean     @default(true) @map("is_active")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  salesInvoiceLines    SalesInvoiceLine[]
+  purchaseInvoiceLines PurchaseInvoiceLine[]
+  journalEntryLines    JournalEntryLine[]
+  receiptsAsBank       Receipt[]             @relation("ReceiptBankAccount")
+  paymentsAsBank       Payment[]             @relation("PaymentBankAccount")
+
+  @@unique([companyId, code])
+  @@index([companyId, type])
+  @@map("chart_of_accounts")
+}
+
+// ---------------------------------------------------------------------------
+// Customers / Suppliers
+// ---------------------------------------------------------------------------
+
+model Customer {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  name      String
+  email     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salesInvoices SalesInvoice[]
+  receipts      Receipt[]
+
+  @@index([companyId])
+  @@map("customers")
+}
+
+model Supplier {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  name      String
+  email     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  purchaseInvoices PurchaseInvoice[]
+  payments         Payment[]
+
+  @@index([companyId])
+  @@map("suppliers")
+}
+
+// ---------------------------------------------------------------------------
+// Sales Invoice (AR)
+// ---------------------------------------------------------------------------
+
+enum InvoiceStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+model SalesInvoice {
+  id              String        @id @default(uuid())
+  companyId       String        @map("company_id")
+  customerId      String        @map("customer_id")
+  fiscalPeriodId  String        @map("fiscal_period_id")
+  invoiceNumber   String        @map("invoice_number")
+  invoiceDate     DateTime      @map("invoice_date") @db.Date
+  subtotal        Decimal       @db.Decimal(18, 2)
+  vatAmount       Decimal       @map("vat_amount") @db.Decimal(18, 2)
+  totalAmount     Decimal       @map("total_amount") @db.Decimal(18, 2)
+  status          InvoiceStatus @default(DRAFT)
+  journalEntryId  String?       @unique @map("journal_entry_id")
+  idempotencyKey  String?       @map("idempotency_key")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  company      Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  customer     Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  fiscalPeriod FiscalPeriod       @relation(fields: [fiscalPeriodId], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry?      @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  lines        SalesInvoiceLine[]
+  allocations  ReceiptAllocation[]
+
+  @@unique([companyId, invoiceNumber])
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, customerId])
+  @@index([companyId, status])
+  @@map("sales_invoices")
+}
+
+model SalesInvoiceLine {
+  id               String  @id @default(uuid())
+  invoiceId        String  @map("invoice_id")
+  description      String
+  revenueAccountId String  @map("revenue_account_id")
+  amount           Decimal @db.Decimal(18, 2)
+  vatRate          Decimal @map("vat_rate") @db.Decimal(5, 2)
+  vatAmount        Decimal @map("vat_amount") @db.Decimal(18, 2)
+
+  invoice        SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  revenueAccount Account      @relation(fields: [revenueAccountId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
+  @@map("sales_invoice_lines")
+}
+
+// ---------------------------------------------------------------------------
+// Purchase Invoice (AP)
+// ---------------------------------------------------------------------------
+
+model PurchaseInvoice {
+  id              String        @id @default(uuid())
+  companyId       String        @map("company_id")
+  supplierId      String        @map("supplier_id")
+  fiscalPeriodId  String        @map("fiscal_period_id")
+  invoiceNumber   String        @map("invoice_number")
+  invoiceDate     DateTime      @map("invoice_date") @db.Date
+  subtotal        Decimal       @db.Decimal(18, 2)
+  vatAmount       Decimal       @map("vat_amount") @db.Decimal(18, 2)
+  totalAmount     Decimal       @map("total_amount") @db.Decimal(18, 2)
+  status          InvoiceStatus @default(DRAFT)
+  journalEntryId  String?       @unique @map("journal_entry_id")
+  idempotencyKey  String?       @map("idempotency_key")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  company      Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  supplier     Supplier              @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  fiscalPeriod FiscalPeriod          @relation(fields: [fiscalPeriodId], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry?         @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  lines        PurchaseInvoiceLine[]
+  allocations  PaymentAllocation[]
+
+  @@unique([companyId, invoiceNumber])
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, supplierId])
+  @@index([companyId, status])
+  @@map("purchase_invoices")
+}
+
+model PurchaseInvoiceLine {
+  id               String  @id @default(uuid())
+  invoiceId        String  @map("invoice_id")
+  description      String
+  expenseAccountId String  @map("expense_account_id")
+  amount           Decimal @db.Decimal(18, 2)
+  vatRate          Decimal @map("vat_rate") @db.Decimal(5, 2)
+  vatAmount        Decimal @map("vat_amount") @db.Decimal(18, 2)
+
+  invoice        PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  expenseAccount Account         @relation(fields: [expenseAccountId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
+  @@map("purchase_invoice_lines")
+}
+
+// ---------------------------------------------------------------------------
+// Receipts (customer payments against AR)
+// ---------------------------------------------------------------------------
+
+enum SettlementStatus {
+  POSTED
+  CANCELLED
+}
+
+model Receipt {
+  id             String            @id @default(uuid())
+  companyId      String            @map("company_id")
+  customerId     String            @map("customer_id")
+  fiscalPeriodId String            @map("fiscal_period_id")
+  receiptDate    DateTime          @map("receipt_date") @db.Date
+  amount         Decimal           @db.Decimal(18, 2)
+  bankAccountId  String            @map("bank_account_id")
+  status         SettlementStatus  @default(POSTED)
+  journalEntryId String?           @unique @map("journal_entry_id")
+  idempotencyKey String?           @map("idempotency_key")
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  company      Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  customer     Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  fiscalPeriod FiscalPeriod        @relation(fields: [fiscalPeriodId], references: [id], onDelete: Restrict)
+  bankAccount  Account             @relation("ReceiptBankAccount", fields: [bankAccountId], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry?       @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  allocations  ReceiptAllocation[]
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, customerId])
+  @@map("receipts")
+}
+
+model ReceiptAllocation {
+  id               String  @id @default(uuid())
+  receiptId        String  @map("receipt_id")
+  invoiceId        String  @map("invoice_id")
+  allocatedAmount  Decimal @map("allocated_amount") @db.Decimal(18, 2)
+
+  receipt Receipt      @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  invoice SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([receiptId, invoiceId])
+  @@index([invoiceId])
+  @@map("receipt_allocations")
+}
+
+// ---------------------------------------------------------------------------
+// Payments (supplier payments against AP)
+// ---------------------------------------------------------------------------
+
+model Payment {
+  id             String           @id @default(uuid())
+  companyId      String           @map("company_id")
+  supplierId     String           @map("supplier_id")
+  fiscalPeriodId String           @map("fiscal_period_id")
+  paymentDate    DateTime         @map("payment_date") @db.Date
+  amount         Decimal          @db.Decimal(18, 2)
+  bankAccountId  String           @map("bank_account_id")
+  status         SettlementStatus @default(POSTED)
+  journalEntryId String?          @unique @map("journal_entry_id")
+  idempotencyKey String?          @map("idempotency_key")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  company      Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  supplier     Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  fiscalPeriod FiscalPeriod        @relation(fields: [fiscalPeriodId], references: [id], onDelete: Restrict)
+  bankAccount  Account             @relation("PaymentBankAccount", fields: [bankAccountId], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry?       @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  allocations  PaymentAllocation[]
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, supplierId])
+  @@map("payments")
+}
+
+model PaymentAllocation {
+  id              String  @id @default(uuid())
+  paymentId       String  @map("payment_id")
+  invoiceId       String  @map("invoice_id")
+  allocatedAmount Decimal @map("allocated_amount") @db.Decimal(18, 2)
+
+  payment Payment         @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([paymentId, invoiceId])
+  @@index([invoiceId])
+  @@map("payment_allocations")
+}
+
+// ---------------------------------------------------------------------------
+// Journal Entries — the single source of truth for the General Ledger
+// ---------------------------------------------------------------------------
+
+enum JournalSourceType {
+  SALES_INVOICE
+  PURCHASE_INVOICE
+  RECEIPT
+  PAYMENT
+  MANUAL
+  REVERSAL
+}
+
+model JournalEntry {
+  id             String            @id @default(uuid())
+  companyId      String            @map("company_id")
+  fiscalPeriodId String            @map("fiscal_period_id")
+  entryDate      DateTime          @map("entry_date") @db.Date
+  sourceType     JournalSourceType @map("source_type")
+  sourceId       String?           @map("source_id")
+  reversalOfId   String?           @unique @map("reversal_of_id")
+  description    String?
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  company      Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  fiscalPeriod FiscalPeriod       @relation(fields: [fiscalPeriodId], references: [id], onDelete: Restrict)
+  reversalOf   JournalEntry?      @relation("Reversal", fields: [reversalOfId], references: [id], onDelete: SetNull)
+  reversedBy   JournalEntry?      @relation("Reversal")
+  lines        JournalEntryLine[]
+
+  salesInvoice     SalesInvoice?
+  purchaseInvoice  PurchaseInvoice?
+  receipt          Receipt?
+  payment          Payment?
+
+  @@index([companyId, fiscalPeriodId])
+  @@index([companyId, sourceType, sourceId])
+  @@map("journal_entries")
+}
+
+model JournalEntryLine {
+  id             String  @id @default(uuid())
+  journalEntryId String  @map("journal_entry_id")
+  accountId      String  @map("account_id")
+  debit          Decimal @default(0) @db.Decimal(18, 2)
+  credit         Decimal @default(0) @db.Decimal(18, 2)
+  lineOrder      Int     @default(0) @map("line_order")
+
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([journalEntryId])
+  @@index([accountId])
+  @@map("journal_entry_lines")
+}
+
+// ---------------------------------------------------------------------------
+// Audit log — append-only
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  companyId   String?  @map("company_id")
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  beforeState Json?    @map("before_state")
+  afterState  Json?    @map("after_state")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
