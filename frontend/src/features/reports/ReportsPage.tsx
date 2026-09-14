@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useCompany } from "../../context/CompanyContext";
+import { useCompany } from "../../context/useCompany";
 import { useApi } from "../../lib/useApi";
 import { reportsApi } from "../../api/reports";
 import { PageHeader } from "../../components/PageHeader";

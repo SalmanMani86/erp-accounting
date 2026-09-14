@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { useCompany } from "../context/CompanyContext";
+import { useCompany } from "../context/useCompany";
 import { FullPageSpinner, ErrorBanner } from "./Feedback";
 import { CompanySwitcher } from "./CompanySwitcher";
 

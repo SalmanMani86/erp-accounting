@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useCompany } from "../context/CompanyContext";
+import { useCompany } from "../context/useCompany";
 import { Modal } from "./Modal";
 import { Field, Input } from "./Field";
 import { Button } from "./Button";

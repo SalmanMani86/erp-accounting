@@ -1,17 +1,7 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Company } from "../types";
 import { companiesApi } from "../api/companies";
-
-interface CompanyContextValue {
-  companies: Company[];
-  currentCompany: Company | null;
-  isLoading: boolean;
-  error: string | null;
-  selectCompany: (companyId: string) => void;
-  refreshCompanies: () => Promise<void>;
-}
-
-const CompanyContext = createContext<CompanyContextValue | undefined>(undefined);
+import { CompanyContext } from "./companyContextValue";
 
 const STORAGE_KEY = "erp.currentCompanyId";
 
@@ -65,10 +55,4 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
       {children}
     </CompanyContext.Provider>
   );
-}
-
-export function useCompany() {
-  const ctx = useContext(CompanyContext);
-  if (!ctx) throw new Error("useCompany must be used within CompanyProvider");
-  return ctx;
 }

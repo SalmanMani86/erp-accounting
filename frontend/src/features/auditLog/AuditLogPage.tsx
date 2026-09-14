@@ -1,4 +1,4 @@
-import { useCompany } from "../../context/CompanyContext";
+import { useCompany } from "../../context/useCompany";
 import { useApi } from "../../lib/useApi";
 import { auditLogApi } from "../../api/auditLog";
 import { PageHeader } from "../../components/PageHeader";
