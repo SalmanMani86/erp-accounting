@@ -22,22 +22,42 @@ export function InvoiceDetailDrawer({
     () => salesInvoicesApi.get(companyId, invoiceId),
     [companyId, invoiceId]
   );
+  const [isConfirmingCancel, setIsConfirmingCancel] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
-  async function handleCancel() {
-    if (!confirm("Cancel this invoice? A reversal journal entry will be posted; nothing is deleted.")) return;
+  async function handleConfirmCancel() {
     setIsCancelling(true);
     setCancelError(null);
     try {
       await salesInvoicesApi.cancel(companyId, invoiceId);
       reload();
       onChanged();
+      setIsConfirmingCancel(false);
     } catch (err) {
       setCancelError(err instanceof Error ? err.message : "Failed to cancel invoice");
     } finally {
       setIsCancelling(false);
     }
+  }
+
+  if (isConfirmingCancel) {
+    return (
+      <Modal title="Cancel invoice" onClose={onClose} widthClassName="max-w-sm">
+        {cancelError && <div className="mb-4"><ErrorBanner message={cancelError} /></div>}
+        <p className="text-sm text-slate-600">
+          A reversal journal entry will be posted; the original invoice and its history are never deleted.
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={() => setIsConfirmingCancel(false)}>
+            Back
+          </Button>
+          <Button type="button" variant="danger" isLoading={isCancelling} onClick={handleConfirmCancel}>
+            Cancel invoice
+          </Button>
+        </div>
+      </Modal>
+    );
   }
 
   return (
@@ -48,8 +68,6 @@ export function InvoiceDetailDrawer({
         <ErrorBanner message={error} />
       ) : invoice ? (
         <div className="space-y-5">
-          {cancelError && <ErrorBanner message={cancelError} />}
-
           <div className="flex items-center justify-between">
             <StatusBadge status={invoice.status} />
             <span className="text-xs text-slate-400">{formatDate(invoice.invoiceDate)}</span>
@@ -93,7 +111,7 @@ export function InvoiceDetailDrawer({
 
           {invoice.status === "POSTED" && (
             <div className="flex justify-end border-t border-slate-100 pt-4">
-              <Button variant="danger" size="sm" isLoading={isCancelling} onClick={handleCancel}>
+              <Button variant="danger" size="sm" onClick={() => setIsConfirmingCancel(true)}>
                 Cancel invoice (reversal)
               </Button>
             </div>

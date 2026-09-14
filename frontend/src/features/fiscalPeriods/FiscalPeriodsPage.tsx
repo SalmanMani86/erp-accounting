@@ -8,19 +8,21 @@ import { Table, THead, TH, TBody, TR, TD } from "../../components/Table";
 import { FullPageSpinner, ErrorBanner, EmptyState } from "../../components/Feedback";
 import { StatusBadge } from "../../components/Badge";
 import { formatDate } from "../../lib/format";
-import { Modal } from "../../components/Modal";
-import { Field, Input } from "../../components/Field";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { CreatePeriodModal } from "./CreatePeriodModal";
 
 export function FiscalPeriodsPage() {
   const { currentCompany } = useCompany();
   const companyId = currentCompany!.id;
   const { data: periods, isLoading, error, reload } = useApi(() => fiscalPeriodsApi.list(companyId), [companyId]);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null);
   const [closingId, setClosingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  async function handleClose(id: string) {
-    if (!confirm("Close this fiscal period? No further postings will be accepted into it.")) return;
+  async function handleConfirmClose() {
+    if (!confirmCloseId) return;
+    const id = confirmCloseId;
     setClosingId(id);
     setActionError(null);
     try {
@@ -30,6 +32,7 @@ export function FiscalPeriodsPage() {
       setActionError(err instanceof Error ? err.message : "Failed to close period");
     } finally {
       setClosingId(null);
+      setConfirmCloseId(null);
     }
   }
 
@@ -75,7 +78,7 @@ export function FiscalPeriodsPage() {
                       size="sm"
                       variant="secondary"
                       isLoading={closingId === p.id}
-                      onClick={() => handleClose(p.id)}
+                      onClick={() => setConfirmCloseId(p.id)}
                     >
                       Close period
                     </Button>
@@ -97,63 +100,18 @@ export function FiscalPeriodsPage() {
           }}
         />
       )}
+
+      {confirmCloseId && (
+        <ConfirmDialog
+          title="Close fiscal period"
+          message="No further postings will be accepted into this period once it's closed. This cannot be undone from the UI."
+          confirmLabel="Close period"
+          variant="danger"
+          isLoading={closingId === confirmCloseId}
+          onConfirm={handleConfirmClose}
+          onCancel={() => setConfirmCloseId(null)}
+        />
+      )}
     </div>
-  );
-}
-
-function CreatePeriodModal({
-  companyId,
-  onClose,
-  onCreated,
-}: {
-  companyId: string;
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [name, setName] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setError(null);
-    try {
-      await fiscalPeriodsApi.create(companyId, { name, startDate, endDate });
-      onCreated();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create fiscal period");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  return (
-    <Modal title="New fiscal period" onClose={onClose}>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {error && <ErrorBanner message={error} />}
-        <Field label="Name">
-          <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. 2026-09" />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Start date">
-            <Input type="date" required value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          </Field>
-          <Field label="End date">
-            <Input type="date" required value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-          </Field>
-        </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" isLoading={isSubmitting}>
-            Create period
-          </Button>
-        </div>
-      </form>
-    </Modal>
   );
 }
